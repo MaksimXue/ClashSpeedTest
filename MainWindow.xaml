@@ -200,55 +200,64 @@
                     <StackPanel>
                         <TextBlock Text="测试设置" FontSize="14" FontWeight="SemiBold" Foreground="#1F2328" Margin="0,0,0,12"/>
                         <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,16,0">
-                                <TextBlock Text="当前机场" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
-                                <TextBlock x:Name="TxtAirline" Text="检测中…" FontSize="13" FontWeight="SemiBold"
-                                           Foreground="#1F2328" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                            </StackPanel>
-                            <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,18,16,0">
-                                <Button x:Name="BtnRescan" Content="重新检测" Height="31" Padding="10,0"
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                    <TextBlock Text="当前机场" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
+                                    <TextBlock x:Name="TxtAirline" Text="检测中…" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="#1F2328" TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ShowDuration="30000"/>
+                                </StackPanel>
+                                <Button x:Name="BtnRescan" Grid.Column="1" Content="重新检测" Height="31" Padding="10,0"
                                         Background="White" Foreground="#1F2328" BorderBrush="#D0D7DE"
-                                        BorderThickness="1" FontSize="12" Cursor="Hand"
+                                        BorderThickness="1" FontSize="12" Cursor="Hand" VerticalAlignment="Bottom"
                                         Click="OnRescan" Style="{StaticResource Btn}"/>
-                            </StackPanel>
-                            <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,16,0">
-                                <TextBlock Text="测速秒数" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
-                                <TextBox x:Name="TxtSeconds" Text="10" Width="80"/>
-                            </StackPanel>
-                            <StackPanel Grid.Row="0" Grid.Column="3" Margin="0,0,16,0">
-                                <TextBlock Text="最大下载 (MB)" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
-                                <TextBox x:Name="TxtMaxMb" Text="30" Width="80"/>
-                            </StackPanel>
-                            <StackPanel Grid.Row="0" Grid.Column="4" Margin="0,0,16,0">
-                                <TextBlock Text="关键词过滤" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
-                                <TextBox x:Name="TxtFilter" Width="110"/>
-                            </StackPanel>
-                            <StackPanel Grid.Row="0" Grid.Column="5" Margin="0,0,16,0">
-                                <TextBlock Text="只测延迟" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
-                                <CheckBox x:Name="ChkDelayOnly" Margin="0,8,0,0"/>
-                            </StackPanel>
-                            <StackPanel Grid.Row="1" Grid.Column="6" Margin="0,10,16,0">
-                                <TextBlock Text="测速源 URL" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
-                                <TextBox x:Name="TxtUrl" Text="https://speed.cloudflare.com/__down?bytes=52428800"/>
-                            </StackPanel>
-                            <StackPanel Grid.Row="1" Grid.Column="7" Margin="0,28,10,0">
+                            </Grid>
+
+                            <Grid Grid.Row="1" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="100"/>
+                                    <ColumnDefinition Width="130"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="76"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                    <TextBlock Text="测速秒数" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="TxtSeconds" Text="10"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="0,0,12,0">
+                                    <TextBlock Text="最大下载 (MB)" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="TxtMaxMb" Text="30"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Margin="0,0,12,0">
+                                    <TextBlock Text="关键词过滤" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="TxtFilter"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="3">
+                                    <TextBlock Text="只测延迟" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
+                                    <CheckBox x:Name="ChkDelayOnly" Margin="0,8,0,0"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid Grid.Row="2" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                    <TextBlock Text="测速源 URL" FontSize="11" Foreground="#656D76" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="TxtUrl" Text="https://speed.cloudflare.com/__down?bytes=52428800"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
                                 <Button x:Name="BtnStart" Content="▶ 开始测速" Width="110" Height="32"
                                         Background="#1F883D" Foreground="White"
                                         BorderBrush="#1A7F37" BorderThickness="1"
@@ -272,12 +281,10 @@
                                         </ControlTemplate>
                                     </Button.Template>
                                 </Button>
-                            </StackPanel>
-                            <StackPanel Grid.Row="1" Grid.Column="8" Margin="0,28,10,0">
                                 <Button x:Name="BtnStop" Content="■ 停止" Width="90" Height="32"
                                         Background="#CF222E" Foreground="White" BorderThickness="1"
                                         BorderBrush="#A40E26" FontWeight="SemiBold" FontSize="13" Cursor="Hand"
-                                        IsEnabled="False" Click="OnStop" Style="{StaticResource Btn}">
+                                        Margin="10,0,0,0" IsEnabled="False" Click="OnStop" Style="{StaticResource Btn}">
                                     <Button.Template>
                                         <ControlTemplate TargetType="Button">
                                             <Border x:Name="Bd" CornerRadius="6" Background="{TemplateBinding Background}"
@@ -296,13 +303,12 @@
                                         </ControlTemplate>
                                     </Button.Template>
                                 </Button>
-                            </StackPanel>
-                            <StackPanel Grid.Row="1" Grid.Column="9" Margin="0,28,0,0">
                                 <Button x:Name="BtnExport" Content="导出 CSV" Width="96" Height="32"
                                         Background="White" Foreground="#1F2328"
                                         BorderBrush="#D0D7DE" BorderThickness="1"
-                                        FontSize="13" Cursor="Hand" Click="OnExport" Style="{StaticResource Btn}"/>
+                                        Margin="10,0,0,0" FontSize="13" Cursor="Hand" Click="OnExport" Style="{StaticResource Btn}"/>
                             </StackPanel>
+                            </Grid>
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -345,18 +351,18 @@
                             </DockPanel>
                         </Border>
                         <Grid Margin="14,12,14,12">
-                            <ListView x:Name="LstNodes" ItemsSource="{Binding}">
+                            <ListView x:Name="LstNodes">
                                 <ListView.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid Margin="0" Height="56">
+                                        <Grid Margin="0" MinHeight="58">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="6"/>
-                                                <ColumnDefinition Width="44"/>
+                                                <ColumnDefinition Width="40"/>
                                                 <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="100"/>
-                                                <ColumnDefinition Width="180"/>
-                                                <ColumnDefinition Width="120"/>
-                                                <ColumnDefinition Width="64"/>
+                                                <ColumnDefinition Width="88"/>
+                                                <ColumnDefinition Width="150"/>
+                                                <ColumnDefinition Width="96"/>
+                                                <ColumnDefinition Width="72"/>
                                             </Grid.ColumnDefinitions>
 
                                             <!-- 左侧状态色条 -->
@@ -368,9 +374,10 @@
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
 
                                             <!-- 节点 + 类型 -->
-                                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="12,0,0,0">
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="12,0,8,0">
                                                 <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
-                                                           Foreground="#1F2328" TextTrimming="CharacterEllipsis"/>
+                                                           Foreground="#1F2328" TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding Name}"/>
                                                 <TextBlock Text="{Binding Type}" FontSize="11" Foreground="#656D76" Margin="0,2,0,0"/>
                                             </StackPanel>
 
@@ -393,7 +400,8 @@
                                             <Border Grid.Column="5" Style="{StaticResource Badge}" Margin="0,0,8,0"
                                                     Background="{Binding StatusBg}" HorizontalAlignment="Center">
                                                 <TextBlock Text="{Binding StatusText}" FontSize="12" FontWeight="SemiBold"
-                                                           Foreground="{Binding StatusFg}"/>
+                                                           Foreground="{Binding StatusFg}" TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding StatusText}"/>
                                             </Border>
 
                                             <!-- 重测按钮（仅 error 节点显示） -->
@@ -413,6 +421,33 @@
                                                         <ControlTemplate.Triggers>
                                                             <Trigger Property="IsMouseOver" Value="True">
                                                                 <Setter TargetName="Bd" Property="Background" Value="#FBE6A6"/>
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Button.Template>
+                                            </Button>
+
+                                            <!-- 使用按钮（测速成功后显示） -->
+                                            <Button Grid.Column="6" Content="{Binding UseButtonText}" Height="26" Padding="8,0"
+                                                    Background="#1F883D" Foreground="White" BorderThickness="0"
+                                                    FontSize="11" FontWeight="SemiBold" Cursor="Hand"
+                                                    Visibility="{Binding UseVisibility}"
+                                                    IsEnabled="{Binding IsUseEnabled}"
+                                                    Tag="{Binding Name}"
+                                                    Click="OnUseNode"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <Button.Template>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="Bd" CornerRadius="4" Background="{TemplateBinding Background}"
+                                                                Padding="{TemplateBinding Padding}">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="Bd" Property="Background" Value="#1A7F37"/>
+                                                            </Trigger>
+                                                            <Trigger Property="IsEnabled" Value="False">
+                                                                <Setter Property="Opacity" Value="0.65"/>
                                                             </Trigger>
                                                         </ControlTemplate.Triggers>
                                                     </ControlTemplate>
@@ -447,24 +482,16 @@
                                 <TextBlock x:Name="TxtBestName" Text="" FontSize="14" FontWeight="Bold"
                                            Foreground="#1F2328" Margin="0,2,0,0" TextWrapping="Wrap"/>
                                 <TextBlock x:Name="TxtBestMeta" Text="" FontSize="11" Foreground="#1A7F37" Margin="0,2,0,0"/>
-                                <Button x:Name="BtnCopy" Content="复制节点名" Margin="0,8,0,0" Height="26"
-                                        Background="#1F883D" Foreground="White" BorderThickness="0"
-                                        FontSize="11" FontWeight="SemiBold" Cursor="Hand" Click="OnCopyBest"
-                                        HorizontalAlignment="Left" Padding="10,0">
-                                    <Button.Template>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border x:Name="Bd" CornerRadius="4" Background="{TemplateBinding Background}"
-                                                    Padding="{TemplateBinding Padding}">
-                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Border>
-                                            <ControlTemplate.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="Bd" Property="Background" Value="#1A7F37"/>
-                                                </Trigger>
-                                            </ControlTemplate.Triggers>
-                                        </ControlTemplate>
-                                    </Button.Template>
-                                </Button>
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <Button x:Name="BtnUseBest" Content="切换到此节点" Height="28"
+                                            Background="#1F883D" Foreground="White" BorderThickness="0"
+                                            FontSize="11" FontWeight="SemiBold" Cursor="Hand" Click="OnUseBest"
+                                            Padding="10,0" Style="{StaticResource Btn}"/>
+                                    <Button x:Name="BtnCopy" Content="复制名称" Height="28" Margin="8,0,0,0"
+                                            Background="White" Foreground="#1F2328" BorderBrush="#AFB8C1"
+                                            BorderThickness="1" FontSize="11" FontWeight="SemiBold"
+                                            Cursor="Hand" Click="OnCopyBest" Padding="10,0" Style="{StaticResource Btn}"/>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
 
@@ -479,7 +506,8 @@
                                 <DockPanel>
                                     <TextBlock Text="当前机场" FontSize="11" Foreground="#656D76" DockPanel.Dock="Left"/>
                                     <TextBlock x:Name="TxtGroup" Text="—" FontSize="12" FontWeight="SemiBold"
-                                               Foreground="#1F2328" DockPanel.Dock="Right"/>
+                                               Foreground="#1F2328" DockPanel.Dock="Right" MaxWidth="180"
+                                               TextTrimming="CharacterEllipsis"/>
                                 </DockPanel>
                             </StackPanel>
                         </Border>

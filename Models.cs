@@ -37,13 +37,18 @@ public sealed class NodeResult : System.ComponentModel.INotifyPropertyChanged
     /// <summary>延迟 error（连不上），跳过下载，显示"重测"按钮。</summary>
     public bool ErrorOnly { get; set; }
     public Visibility RetestVisibility { get; set; } = Visibility.Collapsed;
+    public Visibility UseVisibility { get; set; } = Visibility.Collapsed;
+    public string UseButtonText { get; set; } = "使用";
+    public bool IsUseEnabled { get; set; } = true;
+    public bool IsCurrent { get; set; }
 
     public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
     private void Raise(string n) => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(n));
     public void NotifyAll()
     {
         foreach (var p in new[] { "RankText", "DelayText", "SpeedText", "StatusText",
-                                  "StatusBg", "StatusFg", "LeftBar", "RetestVisibility" })
+                                  "StatusBg", "StatusFg", "LeftBar", "RetestVisibility",
+                                  "UseVisibility", "UseButtonText", "IsUseEnabled", "IsCurrent" })
             Raise(p);
     }
 

@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -20,11 +21,12 @@ public partial class MainWindow : Window
     private string _proxyUrl = "";
     private string _originalNode = "";
     private CancellationTokenSource? _cts;
-    private List<NodeResult> _results = new();
+    private readonly ObservableCollection<NodeResult> _results = new();
 
     public MainWindow()
     {
         InitializeComponent();
+        LstNodes.ItemsSource = _results;
         Loaded += OnLoaded;
     }
 
@@ -61,26 +63,37 @@ public partial class MainWindow : Window
 
         // 机场 = Verge profiles.yaml 里的 remote 订阅
         var profiles = VergeProfiles.Load();
-        string airlineText = string.IsNullOrEmpty(profiles.CurrentName) ? "未知" : profiles.CurrentName;
-        if (profiles.Airlines.Count > 0)
-            airlineText += $"（共 {profiles.Airlines.Count} 个订阅：{string.Join("、", profiles.Airlines)}）";
-        else if (profiles.FilePath == null)
-            airlineText += "（未找到 Verge profiles.yaml）";
+        string airlineName = string.IsNullOrEmpty(profiles.CurrentName) ? "未知" : profiles.CurrentName;
+        string airlineSummary = profiles.Airlines.Count > 0
+            ? $"{airlineName} · 共 {profiles.Airlines.Count} 个订阅"
+            : profiles.FilePath == null ? $"{airlineName} · 未找到 Verge profiles.yaml" : airlineName;
+        string airlineDetails = profiles.Airlines.Count > 0
+            ? $"当前：{airlineName}\n全部订阅：{string.Join("、", profiles.Airlines)}"
+            : airlineSummary;
 
-        TxtAirline.Text = airlineText;
-        TxtGroup.Text = airlineText;
+        TxtAirline.Text = airlineSummary;
+        TxtAirline.ToolTip = airlineDetails;
+        TxtGroup.Text = airlineName;
+        TxtGroup.ToolTip = airlineDetails;
         TxtPort.Text = state.MixedPort > 0 ? state.MixedPort.ToString() : "—";
         TxtMeta.Text = $"Clash 已连接 · 模式 {state.Mode}";
 
-        // 节点 = 当前配置下的所有真实节点（去重）
-        var nodes = state.Proxies.Values
-            .Where(p => !GroupTypes.Contains(p.Type) && !MihomoClient.IsMetaGroup(p.Name))
+        // 只列出当前选择组中能直接切换的真实节点。
+        var groupNodeNames = state.Proxies.TryGetValue(_group, out var selectedGroup)
+            ? selectedGroup.All
+            : new List<string>();
+        var nodes = groupNodeNames
+            .Distinct(StringComparer.Ordinal)
+            .Select(name => state.Proxies.TryGetValue(name, out var proxy) ? proxy : null)
+            .Where(p => p != null && !GroupTypes.Contains(p.Type) && !MihomoClient.IsMetaGroup(p.Name))
+            .Select(p => p!)
             .ToList();
-        _results = nodes.Select((n, i) => MakeNode(n.Name, n.Type, i + 1)).ToList();
+        ReplaceResults(nodes.Select((n, i) => MakeNode(
+            n.Name, n.Type, i + 1, string.Equals(n.Name, selectedGroup?.Now, StringComparison.Ordinal))));
         RebindGrid();
 
         TxtFooter.Text = nodes.Count > 0
-            ? $"检测到 {nodes.Count} 个节点 · 当前机场：{airlineText}"
+            ? $"检测到 {nodes.Count} 个节点 · 当前机场：{airlineName}"
             : "未检测到节点，请检查 Clash 订阅";
     }
 
@@ -103,9 +116,17 @@ public partial class MainWindow : Window
         }
     }
 
-    private static NodeResult MakeNode(string name, string type, int rank)
+    private static NodeResult MakeNode(string name, string type, int rank, bool isCurrent)
     {
-        var r = new NodeResult { Name = name, Type = type, RankText = rank.ToString() };
+        var r = new NodeResult
+        {
+            Name = name,
+            Type = type,
+            RankText = rank.ToString(),
+            IsCurrent = isCurrent,
+            UseButtonText = isCurrent ? "当前" : "使用",
+            IsUseEnabled = !isCurrent
+        };
         SetState(r, "等待", "#EAEEF2", "#656D76", "#D0D7DE");
         return r;
     }
@@ -178,6 +199,7 @@ public partial class MainWindow : Window
         {
             r.DelayText = "—"; r.SpeedText = "—"; r.Mbs = 0; r.Ok = false; r.DelayMs = 0;
             r.ErrorOnly = false; r.RetestVisibility = Visibility.Collapsed;
+            r.UseVisibility = Visibility.Collapsed;
             SetState(r, "等待", "#EAEEF2", "#656D76", "#D0D7DE");
         }
         RebindGrid();
@@ -196,6 +218,7 @@ public partial class MainWindow : Window
         catch { }
 
         int total = toTest.Count;
+        bool testCompleted = false;
         try
         {
             // ===== 阶段1：批量延迟检测 =====
@@ -219,6 +242,15 @@ public partial class MainWindow : Window
                         SetState(row, "error", "#FFEBE9", "#CF222E", "#CF222E");
                     }
                 }
+                var selected = toTest.ToHashSet();
+                var ordered = toTest.Where(r => !r.ErrorOnly)
+                    .OrderBy(r => r.DelayMs)
+                    .ThenBy(r => r.Name, StringComparer.CurrentCulture)
+                    .Concat(toTest.Where(r => r.ErrorOnly)
+                        .OrderBy(r => r.Name, StringComparer.CurrentCulture))
+                    .Concat(_results.Where(r => !selected.Contains(r)))
+                    .ToList();
+                ReplaceResults(ordered, updateRanks: true);
                 RebindGrid();
             });
 
@@ -227,9 +259,6 @@ public partial class MainWindow : Window
             {
                 Dispatcher.Invoke(() =>
                 {
-                    var ranked = toTest.OrderBy(r => r.DelayMs <= 0 ? int.MaxValue : r.DelayMs).ToList();
-                    for (int i = 0; i < ranked.Count; i++) ranked[i].RankText = (i + 1).ToString();
-                    foreach (var r in ranked) r.NotifyAll();
                     RebindGrid();
                     SetBadge("已完成", "#1A7F37");
                     TxtFooter.Text = $"延迟检测完成 · {toTest.Count(r => r.DelayMs > 0)}/{total} 可用";
@@ -238,11 +267,14 @@ public partial class MainWindow : Window
             }
 
             // ===== 阶段2：按延迟从低到高逐个下载测速 =====
-            var alive = toTest.Where(r => !r.ErrorOnly).OrderBy(r => r.DelayMs).ToList();
+            var selectedForTest = toTest.ToHashSet();
+            var alive = _results.Where(r => selectedForTest.Contains(r) && !r.ErrorOnly).ToList();
             int done = 0;
             Dispatcher.Invoke(() =>
             {
                 TxtProgress.Text = $"阶段2/2：下载测速 {alive.Count} 个可用节点";
+                Progress.Maximum = Math.Max(1, alive.Count);
+                Progress.Value = 0;
                 UpdateCounts(done, alive.Count);
             });
 
@@ -255,6 +287,7 @@ public partial class MainWindow : Window
                     Dispatcher.Invoke(() =>
                     {
                         SetState(row, "测速中", "#DDEBF6", "#0969DA", "#0969DA");
+                        LstNodes.ScrollIntoView(row);
                         TxtCurrent.Text = row.Name;
                         TxtSideCurrent.Text = row.Name;
                         TxtFooter.Text = $"正在下载测速：{row.Name}";
@@ -271,6 +304,7 @@ public partial class MainWindow : Window
                         else
                             SetState(row, result.StatusText, "#FFEBE9", "#CF222E", "#CF222E");
                         done++;
+                        Progress.Value = done;
                         TxtProgress.Text = $"阶段2/2：下载测速 {done}/{alive.Count}";
                         UpdateCounts(done, alive.Count);
                     });
@@ -284,9 +318,13 @@ public partial class MainWindow : Window
                     .OrderByDescending(r => r.Mbs).ToList();
                 var rest = _results.Where(r => !ok.Contains(r)).ToList();
                 var all = ok.Concat(rest).ToList();
-                for (int i = 0; i < all.Count; i++) all[i].RankText = (i + 1).ToString();
-                foreach (var r in all) r.NotifyAll();
-                _results = all;
+                foreach (var r in ok)
+                {
+                    r.UseVisibility = Visibility.Visible;
+                    r.RetestVisibility = Visibility.Collapsed;
+                    r.NotifyAll();
+                }
+                ReplaceResults(all, updateRanks: true);
                 RebindGrid();
                 if (ok.Count > 0)
                 {
@@ -297,8 +335,9 @@ public partial class MainWindow : Window
                 }
                 SetBadge("已完成", "#1A7F37");
                 TxtProgress.Text = $"完成 · {ok.Count}/{total} 成功";
-                TxtFooter.Text = "测速完成，已恢复原节点";
+                TxtFooter.Text = "测速完成，正在恢复原节点…";
             });
+            testCompleted = true;
         }
         catch (OperationCanceledException)
         {
@@ -310,15 +349,22 @@ public partial class MainWindow : Window
         }
         finally
         {
+            bool restored = true;
             try
             {
                 if (!string.IsNullOrEmpty(_originalNode) && _mihomo != null)
                     await _mihomo.SelectProxyAsync(_group, _originalNode);
             }
-            catch { }
+            catch { restored = false; }
             BtnStart.IsEnabled = true;
             BtnStop.IsEnabled = false;
-            Dispatcher.Invoke(() => { TxtCurrent.Text = ""; TxtSideCurrent.Text = "—"; });
+            Dispatcher.Invoke(() =>
+            {
+                TxtCurrent.Text = "";
+                TxtSideCurrent.Text = "—";
+                if (testCompleted)
+                    TxtFooter.Text = restored ? "测速完成，已恢复原节点" : "测速完成，但恢复原节点失败";
+            });
         }
     }
 
@@ -327,7 +373,7 @@ public partial class MainWindow : Window
     {
         if (_mihomo == null || _service == null) return;
         if (sender is not Button btn || btn.Tag is not string name) return;
-        if (_cts is { } cts && !cts.IsCancellationRequested && BtnStart.IsEnabled == false)
+        if (!BtnStart.IsEnabled)
         {
             TxtFooter.Text = "测速进行中，请先停止再重测。";
             return;
@@ -339,17 +385,24 @@ public partial class MainWindow : Window
 
         var opts = CurrentOptions();
         _service = new NodeSpeedTestService(_mihomo, _group, _proxyUrl);
-        Dispatcher.Invoke(() =>
-        {
-            row.RetestVisibility = Visibility.Collapsed;
-            SetState(row, "测速中", "#DDEBF6", "#0969DA", "#0969DA");
-            TxtFooter.Text = $"正在重测：{name}";
-        });
+        BtnStart.IsEnabled = false;
+        BtnRescan.IsEnabled = false;
+        row.RetestVisibility = Visibility.Collapsed;
+        SetState(row, "测速中", "#DDEBF6", "#0969DA", "#0969DA");
+        TxtFooter.Text = $"正在重测：{name}";
 
-        var node = new ProxyInfo { Name = name, Type = row.Type };
-        var result = await _service.TestAsync(node, opts, CancellationToken.None);
-        Dispatcher.Invoke(() =>
+        string nodeBeforeRetest = "";
+        try
         {
+            var state = await _mihomo.GetStateAsync();
+            nodeBeforeRetest = state.Proxies.TryGetValue(_group, out var group) ? group.Now : "";
+        }
+        catch { }
+
+        try
+        {
+            var node = new ProxyInfo { Name = name, Type = row.Type };
+            var result = await _service.TestAsync(node, opts, CancellationToken.None);
             row.DelayText = result.DelayText;
             row.SpeedText = result.SpeedText;
             row.Ok = result.Ok;
@@ -357,12 +410,30 @@ public partial class MainWindow : Window
             row.DelayMs = result.DelayMs;
             row.ErrorOnly = !result.Ok;
             row.RetestVisibility = !result.Ok ? Visibility.Visible : Visibility.Collapsed;
+            row.UseVisibility = result.Ok ? Visibility.Visible : Visibility.Collapsed;
             if (result.Ok)
                 SetState(row, "完成", "#DAFBE1", "#1A7F37", "#1A7F37");
             else
                 SetState(row, result.StatusText, "#FFEBE9", "#CF222E", "#CF222E");
             TxtFooter.Text = $"重测完成：{name} → {result.SpeedText}";
-        });
+        }
+        catch (Exception ex)
+        {
+            row.RetestVisibility = Visibility.Visible;
+            row.UseVisibility = Visibility.Collapsed;
+            SetState(row, "重测失败", "#FFEBE9", "#CF222E", "#CF222E");
+            TxtFooter.Text = $"重测失败：{ex.Message}";
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(nodeBeforeRetest))
+            {
+                try { await _mihomo.SelectProxyAsync(_group, nodeBeforeRetest); }
+                catch { TxtFooter.Text += " · 恢复原节点失败"; }
+            }
+            BtnStart.IsEnabled = true;
+            BtnRescan.IsEnabled = true;
+        }
     }
 
     private void OnStop(object sender, RoutedEventArgs e)
@@ -395,7 +466,71 @@ public partial class MainWindow : Window
         if (!string.IsNullOrEmpty(TxtBestName.Text))
         {
             Clipboard.SetText(TxtBestName.Text);
-            TxtBestMeta.Text += "  （已复制）";
+            TxtFooter.Text = $"已复制节点名：{TxtBestName.Text}";
+        }
+    }
+
+    private async void OnUseNode(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string name })
+            await SwitchToNodeAsync(name);
+    }
+
+    private async void OnUseBest(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrWhiteSpace(TxtBestName.Text))
+            await SwitchToNodeAsync(TxtBestName.Text);
+    }
+
+    private async Task SwitchToNodeAsync(string name)
+    {
+        if (_mihomo == null || string.IsNullOrEmpty(_group)) return;
+        if (!BtnStart.IsEnabled)
+        {
+            TxtFooter.Text = "测速进行中，完成或停止后才能切换节点。";
+            return;
+        }
+
+        SetUseButtonsEnabled(false);
+        BtnUseBest.IsEnabled = false;
+        TxtFooter.Text = $"正在切换到：{name}…";
+        try
+        {
+            await _mihomo.SelectProxyAsync(_group, name);
+            var state = await _mihomo.GetStateAsync();
+            bool selected = state.Proxies.TryGetValue(_group, out var group) &&
+                string.Equals(group.Now, name, StringComparison.Ordinal);
+            if (!selected)
+                throw new InvalidOperationException("Clash 未确认该节点已生效");
+
+            foreach (var row in _results)
+            {
+                row.IsCurrent = string.Equals(row.Name, name, StringComparison.Ordinal);
+                row.UseButtonText = row.IsCurrent ? "当前" : "使用";
+                row.IsUseEnabled = !row.IsCurrent;
+                row.NotifyAll();
+            }
+            TxtFooter.Text = $"已切换到：{name}";
+        }
+        catch (Exception ex)
+        {
+            SetUseButtonsEnabled(true);
+            TxtFooter.Text = $"切换失败：{ex.Message}";
+            MessageBox.Show($"无法切换到节点“{name}”。\n\n{ex.Message}", "切换失败",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            BtnUseBest.IsEnabled = true;
+        }
+    }
+
+    private void SetUseButtonsEnabled(bool enabled)
+    {
+        foreach (var row in _results)
+        {
+            row.IsUseEnabled = enabled && !row.IsCurrent;
+            row.NotifyAll();
         }
     }
 
@@ -409,9 +544,24 @@ public partial class MainWindow : Window
 
     private void RebindGrid()
     {
-        LstNodes.ItemsSource = null;
-        LstNodes.ItemsSource = _results;
         TxtListCount.Text = $"共 {_results.Count} 项";
+    }
+
+    private void ReplaceResults(IEnumerable<NodeResult> ordered, bool updateRanks = false)
+    {
+        var snapshot = ordered.ToList();
+        if (updateRanks)
+        {
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                snapshot[i].RankText = (i + 1).ToString();
+                snapshot[i].NotifyAll();
+            }
+        }
+
+        _results.Clear();
+        foreach (var row in snapshot)
+            _results.Add(row);
     }
 
     private void SetBadge(string text, string color)

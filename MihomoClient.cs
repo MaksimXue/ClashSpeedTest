@@ -103,7 +103,8 @@ public sealed class MihomoClient : IDisposable
             Proxies = proxies,
             MixedPort = effective,
             ProxyUrl = proxyUrl,
-            Group = group
+            Group = group,
+            Mode = ReadString(cfg, "mode")
         };
     }
 

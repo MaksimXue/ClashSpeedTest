@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
 
@@ -47,12 +48,12 @@ public partial class MainWindow : Window
             TxtFooter.Text = "连接失败：" + ex.Message;
             SetBadge("连接失败", "#CF222E");
             MessageBox.Show("无法连接 Clash 内核。\n\n" + ex.Message +
-                "\n\n请确认：1) Clash Verge Rev 正在运行 2) 已载入订阅 3) 系统代理或 TUN 已开启。",
+                "\n\n请确认：1) Clash Party 或 Clash Verge Rev 正在运行 2) 已载入订阅 3) 系统代理或 TUN 已开启。",
                 "连接失败", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
-    /// <summary>重新检测：读 Verge 订阅(机场) + 拉取当前配置的节点列表。</summary>
+    /// <summary>重新检测：读客户端订阅(机场) + 拉取当前配置的节点列表。</summary>
     private async Task RefreshAllAsync(ClashState? state = null)
     {
         if (_mihomo == null) return;
@@ -61,12 +62,12 @@ public partial class MainWindow : Window
         _proxyUrl = state.ProxyUrl;
         _service = new NodeSpeedTestService(_mihomo, _group, _proxyUrl);
 
-        // 机场 = Verge profiles.yaml 里的 remote 订阅
+        // 机场 = 客户端订阅配置里的 remote 订阅（Clash Party 的 profile.yaml / Verge 的 profiles.yaml）
         var profiles = VergeProfiles.Load();
         string airlineName = string.IsNullOrEmpty(profiles.CurrentName) ? "未知" : profiles.CurrentName;
         string airlineSummary = profiles.Airlines.Count > 0
             ? $"{airlineName} · 共 {profiles.Airlines.Count} 个订阅"
-            : profiles.FilePath == null ? $"{airlineName} · 未找到 Verge profiles.yaml" : airlineName;
+            : profiles.FilePath == null ? $"{airlineName} · 未找到订阅配置" : airlineName;
         string airlineDetails = profiles.Airlines.Count > 0
             ? $"当前：{airlineName}\n全部订阅：{string.Join("、", profiles.Airlines)}"
             : airlineSummary;
@@ -76,7 +77,9 @@ public partial class MainWindow : Window
         TxtGroup.Text = airlineName;
         TxtGroup.ToolTip = airlineDetails;
         TxtPort.Text = state.MixedPort > 0 ? state.MixedPort.ToString() : "—";
-        TxtMeta.Text = $"Clash 已连接 · 模式 {state.Mode}";
+        TxtMeta.Text = string.IsNullOrEmpty(profiles.ClientName)
+            ? $"Clash 已连接 · 模式 {state.Mode}"
+            : $"{profiles.ClientName} 已连接 · 模式 {state.Mode}";
 
         // 只列出当前选择组中能直接切换的真实节点。
         var groupNodeNames = state.Proxies.TryGetValue(_group, out var selectedGroup)
@@ -124,27 +127,41 @@ public partial class MainWindow : Window
             Type = type,
             RankText = rank.ToString(),
             IsCurrent = isCurrent,
+            IsSelected = true,          // 默认全部纳入检测
             UseButtonText = isCurrent ? "当前" : "使用",
             IsUseEnabled = !isCurrent
         };
-        SetState(r, "等待", "#EAEEF2", "#656D76", "#D0D7DE");
+        r.RefreshSelectionBar();
+        SetState(r, "等待", "#EAEEF2", "#656D76");
         return r;
     }
 
-    private static void SetState(NodeResult r, string text, string bg, string fg, string leftBar)
+    /// <summary>
+    /// 设置条目的测速状态（文字 + 徽章配色）。
+    /// 注意：左侧色条只表示"是否检测"，不随测速状态变化，故此处不设置。
+    /// </summary>
+    private static void SetState(NodeResult r, string text, string bg, string fg)
     {
         r.StatusText = text;
         r.StatusBg = new SolidColorBrush((Color)ColorConverter.ConvertFromString(bg));
         r.StatusFg = new SolidColorBrush((Color)ColorConverter.ConvertFromString(fg));
-        r.LeftBar = new SolidColorBrush((Color)ColorConverter.ConvertFromString(leftBar));
         r.NotifyAll();
     }
 
     private static async Task<MihomoClient> ConnectMihomoAsync()
     {
-        string[] endpoints = { "", "http://127.0.0.1:9097", "http://127.0.0.1:9090" };
+        // 1) 动态发现 Clash 内核命名管道（Clash Party / Verge Rev 管道名带动态后缀）
+        var pipeEndpoint = MihomoClient.DiscoverPipeEndpoint();
+        var endpoints = new List<string>();
+        if (pipeEndpoint != null) endpoints.Add(pipeEndpoint);
+        // 2) 固定管道名兜底 + TCP 回退
+        endpoints.Add("pipe://MihomoParty/mihomo");
+        endpoints.Add("pipe://verge-mihomo");
+        endpoints.Add("http://127.0.0.1:9097");
+        endpoints.Add("http://127.0.0.1:9090");
+
         Exception? last = null;
-        foreach (var ep in endpoints)
+        foreach (var ep in endpoints.Distinct())
         {
             var client = new MihomoClient(ep);
             try
@@ -167,7 +184,7 @@ public partial class MainWindow : Window
         {
             Seconds = int.TryParse(TxtSeconds.Text, out var s) ? Math.Clamp(s, 3, 120) : 10,
             MaxMb = double.TryParse(TxtMaxMb.Text, out var m) ? Math.Clamp(m, 2, 500) : 30,
-            Filter = TxtFilter.Text.Trim(),
+            Filter = "",   // 关键词过滤已移除，改用列表勾选
             Url = string.IsNullOrWhiteSpace(TxtUrl.Text) ? "https://speed.cloudflare.com/__down?bytes=52428800" : TxtUrl.Text.Trim(),
             DelayOnly = ChkDelayOnly.IsChecked == true,
         };
@@ -183,14 +200,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 只测列表中勾选（左侧色条为绿色）的节点
         var opts = CurrentOptions();
-        var toTest = _results.Where(r =>
-            string.IsNullOrEmpty(opts.Filter) ||
-            r.Name.Contains(opts.Filter, StringComparison.OrdinalIgnoreCase)).ToList();
+        var toTest = _results.Where(r => r.IsSelected).ToList();
         if (toTest.Count == 0)
         {
-            MessageBox.Show("没有可测节点（关键词过滤后为空）。", "提示",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("没有勾选要检测的节点。\n\n请在节点列表中点击条目，左侧色条变绿色即表示纳入检测。",
+                "提示", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -200,7 +216,7 @@ public partial class MainWindow : Window
             r.DelayText = "—"; r.SpeedText = "—"; r.Mbs = 0; r.Ok = false; r.DelayMs = 0;
             r.ErrorOnly = false; r.RetestVisibility = Visibility.Collapsed;
             r.UseVisibility = Visibility.Collapsed;
-            SetState(r, "等待", "#EAEEF2", "#656D76", "#D0D7DE");
+            SetState(r, "等待", "#EAEEF2", "#656D76");
         }
         RebindGrid();
         RecoBox.Visibility = Visibility.Collapsed;
@@ -239,7 +255,7 @@ public partial class MainWindow : Window
                     {
                         row.ErrorOnly = true;
                         row.RetestVisibility = Visibility.Visible;
-                        SetState(row, "error", "#FFEBE9", "#CF222E", "#CF222E");
+                        SetState(row, "error", "#FFEBE9", "#CF222E");
                     }
                 }
                 var selected = toTest.ToHashSet();
@@ -286,9 +302,8 @@ public partial class MainWindow : Window
                     var node = new ProxyInfo { Name = row.Name, Type = row.Type };
                     Dispatcher.Invoke(() =>
                     {
-                        SetState(row, "测速中", "#DDEBF6", "#0969DA", "#0969DA");
+                        SetState(row, "测速中", "#DDEBF6", "#0969DA");
                         LstNodes.ScrollIntoView(row);
-                        TxtCurrent.Text = row.Name;
                         TxtSideCurrent.Text = row.Name;
                         TxtFooter.Text = $"正在下载测速：{row.Name}";
                     });
@@ -300,9 +315,9 @@ public partial class MainWindow : Window
                         row.Ok = result.Ok;
                         row.Mbs = result.Mbs;
                         if (result.Ok)
-                            SetState(row, "完成", "#DAFBE1", "#1A7F37", "#1A7F37");
+                            SetState(row, "完成", "#DAFBE1", "#1A7F37");
                         else
-                            SetState(row, result.StatusText, "#FFEBE9", "#CF222E", "#CF222E");
+                            SetState(row, result.StatusText, "#FFEBE9", "#CF222E");
                         done++;
                         Progress.Value = done;
                         TxtProgress.Text = $"阶段2/2：下载测速 {done}/{alive.Count}";
@@ -360,7 +375,6 @@ public partial class MainWindow : Window
             BtnStop.IsEnabled = false;
             Dispatcher.Invoke(() =>
             {
-                TxtCurrent.Text = "";
                 TxtSideCurrent.Text = "—";
                 if (testCompleted)
                     TxtFooter.Text = restored ? "测速完成，已恢复原节点" : "测速完成，但恢复原节点失败";
@@ -388,7 +402,7 @@ public partial class MainWindow : Window
         BtnStart.IsEnabled = false;
         BtnRescan.IsEnabled = false;
         row.RetestVisibility = Visibility.Collapsed;
-        SetState(row, "测速中", "#DDEBF6", "#0969DA", "#0969DA");
+        SetState(row, "测速中", "#DDEBF6", "#0969DA");
         TxtFooter.Text = $"正在重测：{name}";
 
         string nodeBeforeRetest = "";
@@ -412,16 +426,16 @@ public partial class MainWindow : Window
             row.RetestVisibility = !result.Ok ? Visibility.Visible : Visibility.Collapsed;
             row.UseVisibility = result.Ok ? Visibility.Visible : Visibility.Collapsed;
             if (result.Ok)
-                SetState(row, "完成", "#DAFBE1", "#1A7F37", "#1A7F37");
+                SetState(row, "完成", "#DAFBE1", "#1A7F37");
             else
-                SetState(row, result.StatusText, "#FFEBE9", "#CF222E", "#CF222E");
+                SetState(row, result.StatusText, "#FFEBE9", "#CF222E");
             TxtFooter.Text = $"重测完成：{name} → {result.SpeedText}";
         }
         catch (Exception ex)
         {
             row.RetestVisibility = Visibility.Visible;
             row.UseVisibility = Visibility.Collapsed;
-            SetState(row, "重测失败", "#FFEBE9", "#CF222E", "#CF222E");
+            SetState(row, "重测失败", "#FFEBE9", "#CF222E");
             TxtFooter.Text = $"重测失败：{ex.Message}";
         }
         finally
@@ -542,9 +556,34 @@ public partial class MainWindow : Window
         TxtOkRate.Text = $"{ok}/{_results.Count}  ({pct:F0}%)";
     }
 
+    /// <summary>刷新列表标题右侧的计数：要检测数 / 总数。</summary>
     private void RebindGrid()
     {
-        TxtListCount.Text = $"共 {_results.Count} 项";
+        var selected = _results.Count(r => r.IsSelected);
+        TxtListCount.Text = $"要检测 {selected} / 共 {_results.Count}";
+    }
+
+    /// <summary>点击节点条目：切换"是否纳入检测"（绿色=检测，灰色=跳过）。</summary>
+    private void OnNodeRowClick(object sender, MouseButtonEventArgs e)
+    {
+        // 条目内的按钮（重测/使用）有自己的点击逻辑，不触发切换
+        DependencyObject? dep = e.OriginalSource as DependencyObject;
+        while (dep != null)
+        {
+            if (dep is Button) return;
+            dep = VisualTreeHelper.GetParent(dep);
+        }
+
+        if (!BtnStart.IsEnabled)
+        {
+            TxtFooter.Text = "测速进行中，完成后才能调整检测项。";
+            return;
+        }
+
+        if (LstNodes.SelectedItem is not NodeResult row) return;
+        row.IsSelected = !row.IsSelected;
+        row.RefreshSelectionBar();
+        RebindGrid();
     }
 
     private void ReplaceResults(IEnumerable<NodeResult> ordered, bool updateRanks = false)

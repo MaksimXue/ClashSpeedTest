@@ -1,3 +1,4 @@
+using System.IO;
 using System.IO.Pipes;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -8,13 +9,41 @@ namespace ClashSpeedTest;
 
 /// <summary>
 /// Clash / Mihomo 控制接口客户端。
-/// 优先通过命名管道(pipe://verge-mihomo)连接 Clash Verge Rev 内核，
-/// 失败时回退到 TCP(http://127.0.0.1:9097 / 9090)。
+/// 支持通过命名管道连接 Clash Party（pipe://MihomoParty/mihomo*）
+/// 或 Clash Verge Rev（pipe://verge-mihomo*）的内核，也可回退到 TCP。
+/// 管道名带动态后缀（如 MihomoParty\mihomo-user-Console-47944），故需先枚举发现。
 /// </summary>
 public sealed class MihomoClient : IDisposable
 {
     private readonly HttpClient _http;
     public string Endpoint { get; }
+
+    /// <summary>
+    /// 枚举 \\.\pipe\ 目录，发现 Clash 内核的命名管道。
+    /// 优先 Clash Party（MihomoParty\mihomo*），其次 Clash Verge Rev（verge-mihomo*）。
+    /// 找不到返回 null。
+    /// </summary>
+    public static string? DiscoverPipeEndpoint()
+    {
+        try
+        {
+            var pipes = Directory.GetFiles(@"\\.\pipe\");
+            // Clash Party：\\.\pipe\MihomoParty\mihomo-user-Console-47944
+            var party = pipes.FirstOrDefault(p =>
+                p.Contains(@"MihomoParty\", StringComparison.OrdinalIgnoreCase));
+            if (party != null) return "pipe://" + party.Replace(@"\\.\pipe\", "");
+            // Clash Verge Rev：\\.\pipe\verge-mihomo（可能带 -xxx 后缀）
+            var verge = pipes.FirstOrDefault(p =>
+                p.EndsWith(@"\verge-mihomo", StringComparison.OrdinalIgnoreCase) ||
+                p.Contains(@"\verge-mihomo-", StringComparison.OrdinalIgnoreCase));
+            if (verge != null) return "pipe://" + verge.Replace(@"\\.\pipe\", "");
+        }
+        catch
+        {
+            // 枚举失败则回退固定名
+        }
+        return null;
+    }
 
     public MihomoClient(string endpoint = "")
     {
@@ -24,7 +53,7 @@ public sealed class MihomoClient : IDisposable
 
         if (Endpoint.StartsWith("pipe://", StringComparison.OrdinalIgnoreCase))
         {
-            var pipeName = Endpoint["pipe://".Length..].Trim('/');
+            var pipeName = NormalizePipeName(Endpoint["pipe://".Length..]);
             handler = new SocketsHttpHandler
             {
                 UseProxy = false,
@@ -245,11 +274,30 @@ public sealed class MihomoClient : IDisposable
         var v = endpoint.Trim();
         if (string.IsNullOrEmpty(v)) v = "pipe://verge-mihomo";
         if (v.StartsWith("pipe://", StringComparison.OrdinalIgnoreCase))
-            return "pipe://" + v["pipe://".Length..].Trim('/');
+            return "pipe://" + NormalizePipeName(v["pipe://".Length..]);
         if (!v.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
             !v.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             v = "http://" + v;
         return v.TrimEnd('/') + "/";
+    }
+
+    /// <summary>
+    /// 把命名管道规范化为纯管道名（去掉 \\.\pipe\ 前缀与首尾分隔符，
+    /// "/" 转 "\"），供 NamedPipeClientStream(".", name) 使用。
+    /// 兼容 "MihomoParty/mihomo"、"MihomoParty\mihomo-user-Console-47944"、
+    /// "\\.\pipe\MihomoParty\mihomo-xxx" 等写法。
+    /// </summary>
+    private static string NormalizePipeName(string name)
+    {
+        var n = name.Replace('/', '\\').Trim('\\');
+        // 去掉可选的 "\\.\pipe\" 前缀（可能因 Trim 后开头变成 ".\\pipe\\"）
+        if (n.StartsWith(@"pipe\", StringComparison.OrdinalIgnoreCase))
+            n = n[5..];
+        else if (n.StartsWith(@".\pipe\", StringComparison.OrdinalIgnoreCase))
+            n = n[7..];
+        else if (n.StartsWith(@"\pipe\", StringComparison.OrdinalIgnoreCase))
+            n = n[6..];
+        return n.Trim('\\');
     }
 
     private static string ReadString(JsonElement e, string name) =>

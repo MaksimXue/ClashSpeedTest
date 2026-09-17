@@ -30,7 +30,19 @@ public sealed class NodeResult : System.ComponentModel.INotifyPropertyChanged
     public string StatusText { get; set; } = "等待";
     public Brush StatusBg { get; set; } = Brush("#EAEEF2");
     public Brush StatusFg { get; set; } = Brush("#656D76");
-    public Brush LeftBar { get; set; } = Brush("#D0D7DE");
+
+    /// <summary>是否纳入本次检测（点击条目切换）。</summary>
+    public bool IsSelected { get; set; } = true;
+
+    /// <summary>左侧色条：绿色=要检测，灰色=不检测。</summary>
+    public Brush SelectionBar { get; set; } = Brush("#1A7F37");
+
+    /// <summary>根据 IsSelected 刷新左侧色条。</summary>
+    public void RefreshSelectionBar()
+    {
+        SelectionBar = Brush(IsSelected ? "#1A7F37" : "#D0D7DE");
+        Raise("SelectionBar");
+    }
     public bool Ok { get; set; }
     public double Mbs { get; set; }
     public int DelayMs { get; set; }
@@ -47,7 +59,7 @@ public sealed class NodeResult : System.ComponentModel.INotifyPropertyChanged
     public void NotifyAll()
     {
         foreach (var p in new[] { "RankText", "DelayText", "SpeedText", "StatusText",
-                                  "StatusBg", "StatusFg", "LeftBar", "RetestVisibility",
+                                  "StatusBg", "StatusFg", "SelectionBar", "RetestVisibility",
                                   "UseVisibility", "UseButtonText", "IsUseEnabled", "IsCurrent" })
             Raise(p);
     }

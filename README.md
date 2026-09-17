@@ -3,8 +3,8 @@
 > 本仓库 fork 自 [jx645879099-hub/ClashSpeedTest](https://github.com/jx645879099-hub/ClashSpeedTest)。
 > 主要改动：新增 **Clash Party**（mihomo-party）客户端支持，并重构界面交互。原项目仅支持 Clash Verge Rev。
 
-[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-2563EB)](https://github.com/jx645879099-hub/ClashSpeedTest/releases/latest)
-[![Build](https://github.com/jx645879099-hub/ClashSpeedTest/actions/workflows/build.yml/badge.svg)](https://github.com/jx645879099-hub/ClashSpeedTest/actions/workflows/build.yml)
+[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-2563EB)](https://github.com/MaksimXue/ClashSpeedTest/releases/latest)
+[![Build](https://github.com/MaksimXue/ClashSpeedTest/actions/workflows/build.yml/badge.svg)](https://github.com/MaksimXue/ClashSpeedTest/actions/workflows/build.yml)
 
 面向 Windows 的 Clash 节点**真实下载速度**批量测速工具（C# / .NET 8 + WPF 原生桌面应用）。
 
@@ -25,7 +25,7 @@ Clash 自带的"延迟测试"只能看 ping，测不出节点能不能下载。�
 
 ## 使用
 
-1. 从 [Releases](https://github.com/jx645879099-hub/ClashSpeedTest/releases/latest) 下载 ZIP 完整包（已含 .NET 运行时，任何 Win10/11 双击即用）
+1. 从 [Releases](https://github.com/MaksimXue/ClashSpeedTest/releases/latest) 下载 ZIP 完整包（已含 .NET 运行时，任何 Win10/11 双击即用）
 2. 解压，双击 `ClashSpeedTest.exe`
 3. 保持 **Clash Party** 或 **Clash Verge Rev** 正常运行（自动通过命名管道对接，无需配置）
 4. 点击【开始测速】即可

@@ -1,5 +1,8 @@
 # Clash 节点测速
 
+> 本仓库 fork 自 [jx645879099-hub/ClashSpeedTest](https://github.com/jx645879099-hub/ClashSpeedTest)。
+> 主要改动：新增 **Clash Party**（mihomo-party）客户端支持，并重构界面交互。原项目仅支持 Clash Verge Rev。
+
 [![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-2563EB)](https://github.com/jx645879099-hub/ClashSpeedTest/releases/latest)
 [![Build](https://github.com/jx645879099-hub/ClashSpeedTest/actions/workflows/build.yml/badge.svg)](https://github.com/jx645879099-hub/ClashSpeedTest/actions/workflows/build.yml)
 
@@ -14,7 +17,7 @@ Clash 自带的"延迟测试"只能看 ping，测不出节点能不能下载。�
 - **两阶段测速（省时间）**：先用 Clash 内核批量延迟检测（`/group/xxx/delay`，几秒出全部结果）→ error 节点自动标记跳过 → 只对可用节点按延迟从低到高逐个下载测速
 - **手动重测**：延迟 error 的节点保留"重测"按钮，可对单个节点强制完整重测
 - **机场识别**：自动读取 Clash 客户端订阅（Clash Party 的 `profile.yaml` / Clash Verge Rev 的 `profiles.yaml`），顶部显示当前激活的机场和订阅数；在 Clash 切换订阅后点"重新检测"即可刷新
-- **智能节点筛选**：支持只测延迟模式、关键词过滤
+- **节点勾选**：点击列表条目即可切换该节点是否参与测速（左侧色条绿色=检测，灰色=跳过），支持只测延迟模式
 - **结果排行**：按下载速度排序，高亮最快节点，一键复制节点名
 - **导出 CSV**：结果可导出（UTF-8，Excel 可直接打开）
 - **自动恢复**：测速期间临时切换节点，测完全部自动恢复你原来的节点

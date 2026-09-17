@@ -41,7 +41,14 @@ dotnet build .\ClashSpeedTest.csproj -c Release
 dotnet publish .\ClashSpeedTest.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o dist
 ```
 
-仓库不提交编译产物（bin/obj/dist）。GitHub Actions 会在每次 push 时自动构建并发布到 Releases。
+仓库不提交编译产物（bin/obj/dist）。发版只需推送一个 `v` 开头的标签，GitHub Actions 会自动构建、打包并发布到 Releases：
+
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+推送到 `main` 分支只会构建并上传构建产物（artifact），不会创建 Release。
 
 ## 技术要点
 

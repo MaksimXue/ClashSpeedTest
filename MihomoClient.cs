@@ -10,7 +10,8 @@ namespace ClashSpeedTest;
 /// <summary>
 /// Clash / Mihomo 控制接口客户端。
 /// 支持通过命名管道连接 Clash Party（pipe://MihomoParty/mihomo*）
-/// 或 Clash Verge Rev（pipe://verge-mihomo*）的内核，也可回退到 TCP。
+/// 或 Clash Verge Rev（pipe://verge-mihomo*）的内核；
+/// 也支持 TCP（FlClash 开启外部控制器后的 127.0.0.1:9090，可带 secret）。
 /// 管道名带动态后缀（如 MihomoParty\mihomo-user-Console-47944），故需先枚举发现。
 /// </summary>
 public sealed class MihomoClient : IDisposable
@@ -45,7 +46,7 @@ public sealed class MihomoClient : IDisposable
         return null;
     }
 
-    public MihomoClient(string endpoint = "")
+    public MihomoClient(string endpoint = "", string secret = "")
     {
         Endpoint = NormalizeEndpoint(endpoint);
         HttpMessageHandler handler;
@@ -83,6 +84,11 @@ public sealed class MihomoClient : IDisposable
         }
 
         _http = new HttpClient(handler) { BaseAddress = baseAddress, Timeout = TimeSpan.FromSeconds(8) };
+
+        // FlClash 等客户端可为外部控制器生成密钥，需带 Bearer 认证
+        if (!string.IsNullOrWhiteSpace(secret))
+            _http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", secret.Trim());
     }
 
     /// <summary>拉取节点列表 + 配置(mixed-port)，并挑出主选择组。</summary>

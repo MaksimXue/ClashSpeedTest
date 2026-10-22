@@ -24,6 +24,9 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _cts;
     private readonly ObservableCollection<NodeResult> _results = new();
 
+    /// <summary>当前连接上的客户端类型（FlClash / Clash Party / Clash Verge Rev / TCP）。</summary>
+    private string _clientKind = "";
+
     public MainWindow()
     {
         InitializeComponent();
@@ -36,7 +39,9 @@ public partial class MainWindow : Window
         try
         {
             TxtMeta.Text = "正在连接 Clash 内核…";
-            _mihomo = await ConnectMihomoAsync();
+            var (client, kind) = await ConnectMihomoAsync();
+            _mihomo = client;
+            _clientKind = kind;
             var state = await _mihomo.GetStateAsync();
             _proxyUrl = state.ProxyUrl;
             SetBadge("就绪", "#656D76");
@@ -48,7 +53,8 @@ public partial class MainWindow : Window
             TxtFooter.Text = "连接失败：" + ex.Message;
             SetBadge("连接失败", "#CF222E");
             MessageBox.Show("无法连接 Clash 内核。\n\n" + ex.Message +
-                "\n\n请确认：1) Clash Party 或 Clash Verge Rev 正在运行 2) 已载入订阅 3) 系统代理或 TUN 已开启。",
+                "\n\n请确认：1) Clash Party / Clash Verge Rev / FlClash 正在运行 2) 已载入订阅 3) 系统代理或 TUN 已开启。" +
+                "\n\n若使用 FlClash：需先在「设置 → 外部控制器」中开启（固定端口 9090），否则内核不开放 REST 接口。",
                 "连接失败", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
@@ -62,24 +68,43 @@ public partial class MainWindow : Window
         _proxyUrl = state.ProxyUrl;
         _service = new NodeSpeedTestService(_mihomo, _group, _proxyUrl);
 
-        // 机场 = 客户端订阅配置里的 remote 订阅（Clash Party 的 profile.yaml / Verge 的 profiles.yaml）
-        var profiles = VergeProfiles.Load();
-        string airlineName = string.IsNullOrEmpty(profiles.CurrentName) ? "未知" : profiles.CurrentName;
-        string airlineSummary = profiles.Airlines.Count > 0
-            ? $"{airlineName} · 共 {profiles.Airlines.Count} 个订阅"
-            : profiles.FilePath == null ? $"{airlineName} · 未找到订阅配置" : airlineName;
-        string airlineDetails = profiles.Airlines.Count > 0
-            ? $"当前：{airlineName}\n全部订阅：{string.Join("、", profiles.Airlines)}"
-            : airlineSummary;
+        // 订阅（机场）信息：按当前实际连接的客户端选择数据源
+        string airlineName, airlineSummary, airlineDetails, clientName;
+        if (_clientKind == "FlClash")
+        {
+            // FlClash：订阅在 database.sqlite(profiles 表)，当前项在 shared_preferences.json
+            var fl = FlClashSupport.Load();
+            airlineName = string.IsNullOrEmpty(fl.CurrentName) ? "未知" : fl.CurrentName;
+            airlineSummary = fl.Airlines.Count > 0
+                ? $"{airlineName} · 共 {fl.Airlines.Count} 个订阅"
+                : $"{airlineName} · 未读取到 FlClash 订阅";
+            airlineDetails = fl.Airlines.Count > 0
+                ? $"当前：{airlineName}\n全部订阅：{string.Join("、", fl.Airlines)}"
+                : airlineSummary;
+            clientName = "FlClash";
+        }
+        else
+        {
+            // 机场 = 客户端订阅配置里的 remote 订阅（Clash Party 的 profile.yaml / Verge 的 profiles.yaml）
+            var profiles = VergeProfiles.Load();
+            airlineName = string.IsNullOrEmpty(profiles.CurrentName) ? "未知" : profiles.CurrentName;
+            airlineSummary = profiles.Airlines.Count > 0
+                ? $"{airlineName} · 共 {profiles.Airlines.Count} 个订阅"
+                : profiles.FilePath == null ? $"{airlineName} · 未找到订阅配置" : airlineName;
+            airlineDetails = profiles.Airlines.Count > 0
+                ? $"当前：{airlineName}\n全部订阅：{string.Join("、", profiles.Airlines)}"
+                : airlineSummary;
+            clientName = profiles.ClientName;
+        }
 
         TxtAirline.Text = airlineSummary;
         TxtAirline.ToolTip = airlineDetails;
         TxtGroup.Text = airlineName;
         TxtGroup.ToolTip = airlineDetails;
         TxtPort.Text = state.MixedPort > 0 ? state.MixedPort.ToString() : "—";
-        TxtMeta.Text = string.IsNullOrEmpty(profiles.ClientName)
+        TxtMeta.Text = string.IsNullOrEmpty(clientName)
             ? $"Clash 已连接 · 模式 {state.Mode}"
-            : $"{profiles.ClientName} 已连接 · 模式 {state.Mode}";
+            : $"{clientName} 已连接 · 模式 {state.Mode}";
 
         // 只列出当前选择组中能直接切换的真实节点。
         var groupNodeNames = state.Proxies.TryGetValue(_group, out var selectedGroup)
@@ -148,26 +173,42 @@ public partial class MainWindow : Window
         r.NotifyAll();
     }
 
-    private static async Task<MihomoClient> ConnectMihomoAsync()
+    private static async Task<(MihomoClient Client, string Kind)> ConnectMihomoAsync()
     {
-        // 1) 动态发现 Clash 内核命名管道（Clash Party / Verge Rev 管道名带动态后缀）
+        // 端点列表：(地址, 密钥, 客户端类型)
+        var endpoints = new List<(string Url, string Secret, string Kind)>();
+
+        // 1) FlClash：默认不开外部控制器；用户开启后固定 127.0.0.1:9090，密钥自动生成
+        var flclash = FlClashSupport.Load();
+        if (flclash.ControllerEnabled && !string.IsNullOrEmpty(flclash.ControllerUrl))
+            endpoints.Add((flclash.ControllerUrl, flclash.Secret, "FlClash"));
+
+        // 2) 动态发现 Clash 内核命名管道（Clash Party / Verge Rev 管道名带动态后缀）
         var pipeEndpoint = MihomoClient.DiscoverPipeEndpoint();
-        var endpoints = new List<string>();
-        if (pipeEndpoint != null) endpoints.Add(pipeEndpoint);
-        // 2) 固定管道名兜底 + TCP 回退
-        endpoints.Add("pipe://MihomoParty/mihomo");
-        endpoints.Add("pipe://verge-mihomo");
-        endpoints.Add("http://127.0.0.1:9097");
-        endpoints.Add("http://127.0.0.1:9090");
+        if (pipeEndpoint != null)
+        {
+            var pipeKind = pipeEndpoint.Contains("MihomoParty", StringComparison.OrdinalIgnoreCase)
+                ? "Clash Party"
+                : "Clash Verge Rev";
+            endpoints.Add((pipeEndpoint, "", pipeKind));
+        }
+
+        // 3) 固定管道名兜底 + TCP 回退
+        endpoints.Add(("pipe://MihomoParty/mihomo", "", "Clash Party"));
+        endpoints.Add(("pipe://verge-mihomo", "", "Clash Verge Rev"));
+        endpoints.Add(("http://127.0.0.1:9097", "", "TCP"));
+        endpoints.Add(("http://127.0.0.1:9090", "", "TCP"));
 
         Exception? last = null;
-        foreach (var ep in endpoints.Distinct())
+        var tried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (url, secret, kind) in endpoints)
         {
-            var client = new MihomoClient(ep);
+            if (!tried.Add(url)) continue;
+            var client = new MihomoClient(url, secret);
             try
             {
                 await client.GetStateAsync();
-                return client;
+                return (client, kind);
             }
             catch (Exception ex)
             {

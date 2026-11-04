@@ -27,6 +27,16 @@ public partial class MainWindow : Window
     /// <summary>当前连接上的客户端类型（FlClash / Clash Party / Clash Verge Rev / TCP）。</summary>
     private string _clientKind = "";
 
+    /// <summary>当前机场（订阅）名称。</summary>
+    private string _airlineName = "";
+
+    /// <summary>结果缓存的键（客户端 + 机场名）。</summary>
+    private string _airportKey = "";
+
+    /// <summary>本次（或上次）检测的开始 / 结束时间。</summary>
+    private DateTimeOffset? _testStartedAt;
+    private DateTimeOffset? _testFinishedAt;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -59,8 +69,12 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>重新检测：读客户端订阅(机场) + 拉取当前配置的节点列表。</summary>
-    private async Task RefreshAllAsync(ClashState? state = null)
+    /// <summary>
+    /// 刷新：读客户端订阅(机场) + 拉取当前配置的节点列表。
+    /// invalidateCache = true 表示用户主动「重新检测」：同一机场下丢弃历史结果；
+    /// 若机场已切换，则仍加载新机场的历史结果。
+    /// </summary>
+    private async Task RefreshAllAsync(ClashState? state = null, bool invalidateCache = false)
     {
         if (_mihomo == null) return;
         state ??= await _mihomo.GetStateAsync();
@@ -97,6 +111,7 @@ public partial class MainWindow : Window
             clientName = profiles.ClientName;
         }
 
+        _airlineName = airlineName;
         TxtAirline.Text = airlineSummary;
         TxtAirline.ToolTip = airlineDetails;
         TxtGroup.Text = airlineName;
@@ -123,6 +138,25 @@ public partial class MainWindow : Window
         TxtFooter.Text = nodes.Count > 0
             ? $"检测到 {nodes.Count} 个节点 · 当前机场：{airlineName}"
             : "未检测到节点，请检查 Clash 订阅";
+
+        // ===== 结果缓存：按机场加载上次结果 =====
+        // 机场切换 → 加载该机场最近一次结果（原结果不丢弃）；
+        // 同一机场点「重新检测」→ 视为重新开始，丢弃该机场缓存。
+        var airportKey = TestResultStore.MakeKey(clientName, airlineName);
+        bool airportChanged = !string.Equals(airportKey, _airportKey, StringComparison.Ordinal);
+        _airportKey = airportKey;
+
+        if (invalidateCache && !airportChanged)
+        {
+            TestResultStore.Remove(_airportKey);
+            ClearTestTime();
+            ResetProgressUi();
+            SetBadge("空闲", "#656D76");
+        }
+        else
+        {
+            ApplyCachedResults(_airportKey);
+        }
     }
 
     private async void OnRescan(object sender, RoutedEventArgs e)
@@ -131,7 +165,7 @@ public partial class MainWindow : Window
         {
             BtnRescan.IsEnabled = false;
             TxtFooter.Text = "正在重新检测…";
-            await RefreshAllAsync();
+            await RefreshAllAsync(invalidateCache: true);
             TxtFooter.Text = "重新检测完成";
         }
         catch (Exception ex)
@@ -263,6 +297,11 @@ public partial class MainWindow : Window
         RecoBox.Visibility = Visibility.Collapsed;
         Progress.Value = 0;
 
+        // 记录本次检测开始时间（结束时间在完成/停止时写入）
+        _testStartedAt = DateTimeOffset.Now;
+        _testFinishedAt = null;
+        UpdateTimeLabels();
+
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
         BtnStart.IsEnabled = false;
@@ -316,9 +355,21 @@ public partial class MainWindow : Window
             {
                 Dispatcher.Invoke(() =>
                 {
+                    // 延迟模式没有下载测速，"可用"节点统一标记为已检测
+                    foreach (var row in toTest.Where(r => r.DelayMs > 0))
+                        SetState(row, "已检测", "#DAFBE1", "#1A7F37");
+
+                    int usable = toTest.Count(r => r.DelayMs > 0);
+                    Progress.Maximum = Math.Max(1, total);
+                    Progress.Value = usable;
+                    TxtProgress.Text = $"延迟检测完成 · {usable}/{total} 可用";
+                    TxtDone.Text = $"{usable} / {total}";
+                    TxtOkRate.Text = $"{usable}/{total}  ({(total == 0 ? 0 : usable * 100.0 / total):F0}%)";
+
+                    MarkFinished();
                     RebindGrid();
                     SetBadge("已完成", "#1A7F37");
-                    TxtFooter.Text = $"延迟检测完成 · {toTest.Count(r => r.DelayMs > 0)}/{total} 可用";
+                    TxtFooter.Text = $"延迟检测完成 · {usable}/{total} 可用";
                 });
                 return;
             }
@@ -382,13 +433,8 @@ public partial class MainWindow : Window
                 }
                 ReplaceResults(all, updateRanks: true);
                 RebindGrid();
-                if (ok.Count > 0)
-                {
-                    var best = ok[0];
-                    TxtBestName.Text = best.Name;
-                    TxtBestMeta.Text = $"{best.Mbs:F2} MB/s  ({best.Mbs * 8:F0} Mbps)  ·  延迟 {best.DelayText}";
-                    RecoBox.Visibility = Visibility.Visible;
-                }
+                SetRecoBox();
+                MarkFinished();
                 SetBadge("已完成", "#1A7F37");
                 TxtProgress.Text = $"完成 · {ok.Count}/{total} 成功";
                 TxtFooter.Text = "测速完成，正在恢复原节点…";
@@ -399,6 +445,7 @@ public partial class MainWindow : Window
         {
             Dispatcher.Invoke(() =>
             {
+                MarkFinished();   // 已测完的部分照样保存
                 SetBadge("已停止", "#9A6700");
                 TxtFooter.Text = "已停止，正在恢复原节点…";
             });
@@ -470,6 +517,13 @@ public partial class MainWindow : Window
                 SetState(row, "完成", "#DAFBE1", "#1A7F37");
             else
                 SetState(row, result.StatusText, "#FFEBE9", "#CF222E");
+
+            // 单节点重测也写回缓存（结束时间取本次重测时间）
+            _testFinishedAt = DateTimeOffset.Now;
+            _testStartedAt ??= _testFinishedAt;
+            UpdateTimeLabels();
+            SaveResults();
+
             TxtFooter.Text = $"重测完成：{name} → {result.SpeedText}";
         }
         catch (Exception ex)
@@ -642,6 +696,171 @@ public partial class MainWindow : Window
         _results.Clear();
         foreach (var row in snapshot)
             _results.Add(row);
+    }
+
+    // ===== 检测时间 =====
+
+    private void UpdateTimeLabels()
+    {
+        TxtStartTime.Text = _testStartedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "—";
+        TxtEndTime.Text = _testFinishedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "—";
+    }
+
+    private void ClearTestTime()
+    {
+        _testStartedAt = null;
+        _testFinishedAt = null;
+        UpdateTimeLabels();
+    }
+
+    /// <summary>清空进度区（切换机场/重新检测且无历史结果时）。</summary>
+    private void ResetProgressUi()
+    {
+        Progress.Maximum = 1;
+        Progress.Value = 0;
+        TxtProgress.Text = "就绪 · 等待开始";
+        TxtDone.Text = "0 / 0";
+        TxtOkRate.Text = "—";
+        RecoBox.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>标记本次检测结束，并把结果写入当前机场的缓存。</summary>
+    private void MarkFinished()
+    {
+        _testFinishedAt = DateTimeOffset.Now;
+        _testStartedAt ??= _testFinishedAt;
+        UpdateTimeLabels();
+        SaveResults();
+    }
+
+    private void SaveResults()
+    {
+        if (string.IsNullOrEmpty(_airportKey) || _testStartedAt == null) return;
+        try
+        {
+            var run = new CachedTestRun
+            {
+                AirportName = _airlineName,
+                ClientKind = _clientKind,
+                Group = _group,
+                DelayOnly = ChkDelayOnly.IsChecked == true,
+                StartedAt = _testStartedAt.Value,
+                FinishedAt = _testFinishedAt ?? DateTimeOffset.Now,
+                Nodes = _results.Select(r => new CachedNodeResult
+                {
+                    Name = r.Name,
+                    Type = r.Type,
+                    DelayMs = r.DelayMs,
+                    DelayText = r.DelayText,
+                    SpeedText = r.SpeedText,
+                    Mbs = r.Mbs,
+                    Ok = r.Ok,
+                    ErrorOnly = r.ErrorOnly,
+                    StatusText = r.StatusText,
+                    IsSelected = r.IsSelected
+                }).ToList()
+            };
+            TestResultStore.Save(_airportKey, run);
+        }
+        catch
+        {
+            // 缓存写入失败不影响界面
+        }
+    }
+
+    /// <summary>把该机场最近一次结果套用到当前节点列表（按节点名匹配）。</summary>
+    private void ApplyCachedResults(string key)
+    {
+        var run = TestResultStore.Load(key);
+        if (run == null || run.Nodes.Count == 0 || _results.Count == 0)
+        {
+            ClearTestTime();
+            ResetProgressUi();
+            return;
+        }
+
+        var byName = run.Nodes.ToDictionary(n => n.Name, StringComparer.Ordinal);
+        int applied = 0;
+        foreach (var row in _results)
+        {
+            if (!byName.TryGetValue(row.Name, out var c)) continue;
+
+            row.DelayMs = c.DelayMs;
+            row.DelayText = string.IsNullOrWhiteSpace(c.DelayText) ? "—" : c.DelayText;
+            row.SpeedText = string.IsNullOrWhiteSpace(c.SpeedText) ? "—" : c.SpeedText;
+            row.Mbs = c.Mbs;
+            row.Ok = c.Ok;
+            row.ErrorOnly = c.ErrorOnly;
+            row.IsSelected = c.IsSelected;
+            row.RefreshSelectionBar();
+            row.RetestVisibility = c.ErrorOnly ? Visibility.Visible : Visibility.Collapsed;
+            row.UseVisibility = c.Ok ? Visibility.Visible : Visibility.Collapsed;
+
+            if (c.Ok) SetState(row, "完成", "#DAFBE1", "#1A7F37");
+            else if (c.ErrorOnly) SetState(row, "error", "#FFEBE9", "#CF222E");
+            else if (c.DelayMs > 0) SetState(row, "已检测", "#DAFBE1", "#1A7F37"); // 只测延迟的结果
+            else SetState(row, string.IsNullOrWhiteSpace(c.StatusText) ? "等待" : c.StatusText,
+                "#EAEEF2", "#656D76");
+            applied++;
+        }
+
+        // 缓存里的节点在当前订阅中一个都匹配不上 → 说明机场配置已变，不复用
+        if (applied == 0)
+        {
+            ClearTestTime();
+            ResetProgressUi();
+            return;
+        }
+
+        // 按缓存中保存的顺序恢复（那正是上次测完后的最终排序）；
+        // 缓存中不存在的节点（订阅新增）保持原相对顺序排在后面。
+        var orderMap = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int i = 0; i < run.Nodes.Count; i++) orderMap[run.Nodes[i].Name] = i;
+        var ordered = _results
+            .OrderBy(r => orderMap.TryGetValue(r.Name, out var idx) ? idx : int.MaxValue)
+            .ThenBy(r => r.Name, StringComparer.CurrentCulture)
+            .ToList();
+        ReplaceResults(ordered, updateRanks: true);
+        RebindGrid();
+
+        _testStartedAt = run.StartedAt;
+        _testFinishedAt = run.FinishedAt;
+        UpdateTimeLabels();
+
+        // 兼容旧缓存（没有 DelayOnly 字段）：全部无下载成功但有延迟数据 → 视为延迟检测
+        bool delayOnlyRun = run.DelayOnly ||
+            (run.Nodes.All(n => !n.Ok) && run.Nodes.Any(n => n.DelayMs > 0));
+
+        int total = run.Nodes.Count;
+        int good = delayOnlyRun
+            ? run.Nodes.Count(n => n.DelayMs > 0)
+            : run.Nodes.Count(n => n.Ok);
+        Progress.Maximum = Math.Max(1, total);
+        Progress.Value = applied;
+        TxtProgress.Text = delayOnlyRun
+            ? $"上次延迟检测 · {applied} 个节点"
+            : $"上次结果 · {applied} 个节点";
+        TxtDone.Text = $"{good} / {total}";
+        TxtOkRate.Text = $"{good}/{total}  ({(total == 0 ? 0 : good * 100.0 / total):F0}%)";
+
+        SetRecoBox();
+        SetBadge("上次结果", "#656D76");
+        TxtFooter.Text = $"已加载上次检测结果（{run.FinishedAt:MM-dd HH:mm}）· 机场：{run.AirportName}";
+    }
+
+    /// <summary>根据当前结果刷新「最快节点」卡片。</summary>
+    private void SetRecoBox()
+    {
+        var best = _results.Where(r => r.Ok && r.Mbs > 0)
+            .OrderByDescending(r => r.Mbs).FirstOrDefault();
+        if (best == null)
+        {
+            RecoBox.Visibility = Visibility.Collapsed;
+            return;
+        }
+        TxtBestName.Text = best.Name;
+        TxtBestMeta.Text = $"{best.Mbs:F2} MB/s  ({best.Mbs * 8:F0} Mbps)  ·  延迟 {best.DelayText}";
+        RecoBox.Visibility = Visibility.Visible;
     }
 
     private void SetBadge(string text, string color)
